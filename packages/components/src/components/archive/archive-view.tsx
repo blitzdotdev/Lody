@@ -1031,7 +1031,20 @@ export function ArchivedSessionGroupSection({
   );
 }
 
-export function ArchiveView() {
+export type ArchiveViewProps = {
+  /**
+   * Suppresses the My Tasks / All Tasks scope control and pins the listing to
+   * the viewer's own archived sessions.
+   *
+   * A host whose workspace has exactly one member has nothing to switch
+   * between, so the control is a dropdown whose two entries list the same
+   * sessions. Defaults to `false`, which is the scope picker every cloud
+   * workspace has always had.
+   */
+  hideTeamScope?: boolean;
+};
+
+export function ArchiveView({ hideTeamScope = false }: ArchiveViewProps = {}) {
   const { t } = useTranslation();
   const listScopeId = useId();
   useListKeyboardNavigation({ scopeId: listScopeId });
@@ -1043,7 +1056,11 @@ export function ArchiveView() {
   const { restoreSession, deleteArchivedSession } = useSessionActions();
   const openMobileDrawer = useSetAtom(setMobileDrawerOpenAtom);
   const [deleteConfirmSession, setDeleteConfirmSession] = useState<SessionMeta | null>(null);
-  const [archiveScope, setArchiveScope] = useAtom(archiveScopeAtom);
+  const [storedArchiveScope, setArchiveScope] = useAtom(archiveScopeAtom);
+  // The stored scope is still written and still read back; it is only the
+  // ANSWER that is pinned, so turning the prop off restores the member's own
+  // last choice rather than a default.
+  const archiveScope = hideTeamScope ? 'my' : storedArchiveScope;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortMode] = useState<ArchiveSortMode>('newest');
   const [groupMode, setGroupMode] = useState<ArchiveGroupMode>('project');
@@ -1486,7 +1503,7 @@ export function ArchiveView() {
             className="h-8 border-foreground/[0.10] bg-background pl-8 text-sm shadow-none dark:border-input-border dark:bg-input"
           />
         </div>
-        {isMobile ? (
+        {isMobile && !hideTeamScope ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1750,6 +1767,7 @@ export function ArchiveView() {
   return (
     <WebArchiveScreen
       archiveScope={archiveScope}
+      hideTeamScope={hideTeamScope}
       isMultiSelectMode={isMultiSelectMode}
       selectedCount={selectedCount}
       isBulkActionBusy={isBulkActionBusy}
