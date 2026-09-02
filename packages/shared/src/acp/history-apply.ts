@@ -632,6 +632,76 @@ const compactToolCallContentForHistory = (
   return dedupeAdjacentToolCallContent(compacted);
 };
 
+/** The two item types a streamed `agent_message_chunk` / `agent_thought_chunk` produces. */
+type StreamedTextMessage = Extract<MessageContent, { type: 'text' | 'thought' }>;
+
+/**
+ * Index of the item a streamed delta continues, or `-1` when it starts a new block.
+ *
+ * A delta that arrives right after its own block still merges into it, exactly as before —
+ * that is the whole behavior when the adapter publishes no `messageId`.
+ *
+ * What `messageId` adds is reach. ACP defines it as the grouping key for streamed chunks
+ * ("all chunks belonging to the same message share the same `messageId`"), while `tool_call`
+ * notifications are reported asynchronously: a parallel or background tool can report itself
+ * between two deltas of the SAME message. Without the id the text block ended at the tool
+ * call and the rest of the sentence became a second block below the tool card. So when the
+ * delta carries an id we scan back over the items a message can be interrupted by
+ * (`tool_call`, `subagent_task`, images, …) and continue the block the id points at.
+ *
+ * The scan stops at the first text-like item either way: only the message that owns that
+ * block may continue it, so text from two different messages is never joined across a tool
+ * call, and no content heuristic is involved.
+ */
+const findStreamedTextMergeIndex = (
+  items: readonly MessageContent[],
+  kind: StreamedTextMessage['type'],
+  messageId: string | undefined
+): number => {
+  const lastIndex = items.length - 1;
+  if (items[lastIndex]?.type === kind) return lastIndex;
+  if (!messageId) return -1;
+
+  for (let index = lastIndex; index >= 0; index--) {
+    const item = items[index];
+    if (!item) continue;
+    if (item.type !== 'text' && item.type !== 'thought') continue;
+    return item.type === kind && item.messageId === messageId ? index : -1;
+  }
+  return -1;
+};
+
+/**
+ * Rewrite a text/thought block with merged text, keeping its `messageId` honest: a block
+ * that ends up holding two messages describes neither, so it keeps no id and later deltas
+ * fall back to plain adjacency.
+ */
+const mergeStreamedTextItem = (
+  existing: StreamedTextMessage,
+  text: string,
+  messageId: string | undefined
+): MessageContent => {
+  if (
+    existing.messageId !== undefined &&
+    messageId !== undefined &&
+    existing.messageId !== messageId
+  ) {
+    const { messageId: _spansTwoMessages, ...rest } = existing;
+    return { ...rest, text } as MessageContent;
+  }
+  return { ...existing, text } as MessageContent;
+};
+
+/** A new text/thought block, tagged with the message it was streamed from (when known). */
+const createStreamedTextItem = (
+  kind: StreamedTextMessage['type'],
+  text: string,
+  messageId: string | undefined
+): MessageContent =>
+  (messageId === undefined
+    ? { type: kind, text }
+    : { type: kind, text, messageId }) as MessageContent;
+
 const compactAdjacentTextAndThought = (items: MessageContent[]): MessageContent[] => {
   if (items.length === 0) return items;
   const compacted: MessageContent[] = [];
@@ -650,11 +720,13 @@ const compactAdjacentTextAndThought = (items: MessageContent[]): MessageContent[
       (nextItem.type === 'text' || nextItem.type === 'thought') &&
       last.type === nextItem.type
     ) {
-      const existing = last as Extract<MessageContent, { type: 'text' | 'thought' }>;
-      const next = nextItem as Extract<MessageContent, { type: 'text' | 'thought' }>;
+      const existing = last as StreamedTextMessage;
+      const next = nextItem as StreamedTextMessage;
       const text = sanitizeLodyInternalInstructions(existing.text + next.text);
       if (text) {
-        compacted[compacted.length - 1] = { ...existing, text };
+        // Adjacent blocks still compact regardless of their ids; the merged block just
+        // stops claiming a message id when the two came from different messages.
+        compacted[compacted.length - 1] = mergeStreamedTextItem(existing, text, next.messageId);
       } else {
         compacted.pop();
       }
@@ -941,8 +1013,14 @@ const mergeToolCallMessage = (
  * unlike Codex which uses dedicated agent_thought_chunk notifications.
  *
  * This function extracts thinking content and converts it to the unified `thought` type.
+ *
+ * The blocks it produces inherit `messageId` from the block being split, so a later delta of
+ * the same message still finds them (see `findStreamedTextMergeIndex`).
  */
-const parseClaudeCodeThinkingTags = (text: string): MessageContent[] => {
+const parseClaudeCodeThinkingTags = (
+  text: string,
+  messageId: string | undefined
+): MessageContent[] => {
   const result: MessageContent[] = [];
 
   // Only tags anchored to line boundaries are structural (same rationale as the
@@ -963,13 +1041,13 @@ const parseClaudeCodeThinkingTags = (text: string): MessageContent[] => {
     if (textBeforeEnd > lastIndex) {
       const textBefore = text.slice(lastIndex, textBeforeEnd);
       if (textBefore) {
-        result.push({ type: 'text', text: textBefore });
+        result.push(createStreamedTextItem('text', textBefore, messageId));
       }
     }
 
     const thinkingContent = match[2];
     if (thinkingContent) {
-      result.push({ type: 'thought', text: thinkingContent });
+      result.push(createStreamedTextItem('thought', thinkingContent, messageId));
     }
 
     lastIndex = thinkingRegex.lastIndex;
@@ -979,19 +1057,23 @@ const parseClaudeCodeThinkingTags = (text: string): MessageContent[] => {
   if (lastIndex < text.length) {
     const textAfter = text.slice(lastIndex);
     if (textAfter) {
-      result.push({ type: 'text', text: textAfter });
+      result.push(createStreamedTextItem('text', textAfter, messageId));
     }
   }
 
   // If no thinking tags found, return the original text
   if (result.length === 0) {
-    return [{ type: 'text', text }];
+    return [createStreamedTextItem('text', text, messageId)];
   }
 
   return result;
 };
 
-const parseCodexProposedPlanTags = (text: string, turnId: string): MessageContent[] => {
+const parseCodexProposedPlanTags = (
+  text: string,
+  turnId: string,
+  messageId: string | undefined
+): MessageContent[] => {
   // Codex may still emit proposed-plan markup as ordinary assistant text. Keep parsing in Lody,
   // but only for line-isolated control tags; inline mentions like `<proposed_plan>` in prose or
   // code must remain visible text.
@@ -1018,7 +1100,7 @@ const parseCodexProposedPlanTags = (text: string, turnId: string): MessageConten
     if (textBeforeEnd > lastIndex) {
       const textBefore = text.slice(lastIndex, textBeforeEnd);
       if (textBefore) {
-        result.push({ type: 'text', text: textBefore });
+        result.push(createStreamedTextItem('text', textBefore, messageId));
       }
     }
 
@@ -1028,13 +1110,13 @@ const parseCodexProposedPlanTags = (text: string, turnId: string): MessageConten
   }
 
   if (insertIndex === undefined) {
-    return [{ type: 'text', text }];
+    return [createStreamedTextItem('text', text, messageId)];
   }
 
   if (lastIndex < text.length) {
     const textAfter = text.slice(lastIndex);
     if (textAfter) {
-      result.push({ type: 'text', text: textAfter });
+      result.push(createStreamedTextItem('text', textAfter, messageId));
     }
   }
 
@@ -1051,13 +1133,17 @@ const parseCodexProposedPlanTags = (text: string, turnId: string): MessageConten
   return result;
 };
 
-const parseAssistantTextTags = (text: string, turnId: string): MessageContent[] => {
-  const withThoughts = parseClaudeCodeThinkingTags(text);
+const parseAssistantTextTags = (
+  text: string,
+  turnId: string,
+  messageId: string | undefined
+): MessageContent[] => {
+  const withThoughts = parseClaudeCodeThinkingTags(text, messageId);
   return withThoughts.flatMap((item) => {
     if (item.type !== 'text') {
       return [item];
     }
-    return parseCodexProposedPlanTags(item.text, turnId);
+    return parseCodexProposedPlanTags(item.text, turnId, messageId);
   });
 };
 
@@ -1075,7 +1161,10 @@ export const buildMessageContentFromNotification = (
         case 'text':
           // Note: Claude Code streams <thinking> tags across multiple chunks.
           // We handle parsing in postProcessThinkingTags() after all chunks are merged.
-          return [{ type: 'text', text: update.content.text }];
+          // `messageId` rides along so the applier can tell which message a delta continues.
+          return [
+            createStreamedTextItem('text', update.content.text, update.messageId ?? undefined),
+          ];
         case 'image':
         case 'audio':
         case 'resource_link':
@@ -1087,7 +1176,9 @@ export const buildMessageContentFromNotification = (
     case 'agent_thought_chunk':
       switch (update.content.type) {
         case 'text':
-          return [{ type: 'thought', text: update.content.text }];
+          return [
+            createStreamedTextItem('thought', update.content.text, update.messageId ?? undefined),
+          ];
         case 'image':
         case 'audio':
         case 'resource_link':
@@ -1540,14 +1631,14 @@ class NotificationOnHistoryApplier {
         const text = sanitizeLodyInternalInstructions(message.text);
         if (!text) return;
         const entryIndex = this.ensureActiveAssistantEntry();
-        this.appendOrMergeAdjacentText(entryIndex, 'text', text);
+        this.appendOrMergeStreamedText(entryIndex, 'text', text, message.messageId);
         return;
       }
       case 'thought': {
         const text = sanitizeLodyInternalInstructions(message.text);
         if (!text) return;
         const entryIndex = this.ensureActiveAssistantEntry();
-        this.appendOrMergeAdjacentText(entryIndex, 'thought', text);
+        this.appendOrMergeStreamedText(entryIndex, 'thought', text, message.messageId);
         return;
       }
       case 'available_commands': {
@@ -1603,34 +1694,32 @@ class NotificationOnHistoryApplier {
     this.changed = true;
   }
 
-  private appendOrMergeAdjacentText(
+  private appendOrMergeStreamedText(
     entryIndex: number,
-    kind: Extract<MessageContent, { type: 'text' | 'thought' }>['type'],
-    delta: string
+    kind: StreamedTextMessage['type'],
+    delta: string,
+    messageId: string | undefined
   ) {
     if (!delta) return;
     const items = this.ensureEntryItems(entryIndex);
 
-    const last = items[items.length - 1];
-    if (last && last.type === kind) {
-      const existing = last as Extract<MessageContent, { type: typeof kind }>;
+    const mergeIndex = findStreamedTextMergeIndex(items, kind, messageId);
+    if (mergeIndex >= 0) {
+      const existing = items[mergeIndex] as Extract<MessageContent, { type: typeof kind }>;
       const text = sanitizeLodyInternalInstructions(mergeStreamChunk(existing.text, delta));
       if (!text) {
-        items.pop();
+        items.splice(mergeIndex, 1);
         this.touchedAssistantEntryIndices.add(entryIndex);
         this.changed = true;
         return;
       }
-      items[items.length - 1] = {
-        ...existing,
-        text,
-      } as MessageContent;
+      items[mergeIndex] = mergeStreamedTextItem(existing, text, messageId);
       this.touchedAssistantEntryIndices.add(entryIndex);
       this.changed = true;
       return;
     }
 
-    items.push({ type: kind, text: delta } as MessageContent);
+    items.push(createStreamedTextItem(kind, delta, messageId));
     this.touchedAssistantEntryIndices.add(entryIndex);
     this.changed = true;
   }
@@ -1755,7 +1844,7 @@ class NotificationOnHistoryApplier {
           continue;
         }
 
-        const parsed = parseAssistantTextTags(text, entry.id);
+        const parsed = parseAssistantTextTags(text, entry.id, item.messageId);
 
         if (
           parsed.length !== 1 ||
@@ -1912,31 +2001,29 @@ export const applyMessageContentsBatch = (
     return entryStates.length - 1;
   };
 
-  const appendOrMergeAdjacentText = (
+  const appendOrMergeStreamedText = (
     entryIndex: number,
-    kind: Extract<MessageContent, { type: 'text' | 'thought' }>['type'],
-    delta: string
+    kind: StreamedTextMessage['type'],
+    delta: string,
+    messageId: string | undefined
   ) => {
     if (!delta) return;
     const state = entryStates[entryIndex];
     if (!state) return;
 
     // Most ACP updates stream text/thought in many small deltas.
-    // Keep the stored representation compact by merging adjacent deltas.
-    const last = state.items[state.items.length - 1];
-    if (last && last.type === kind) {
-      const existing = last as Extract<MessageContent, { type: typeof kind }>;
+    // Keep the stored representation compact by merging them back into one block.
+    const mergeIndex = findStreamedTextMergeIndex(state.items, kind, messageId);
+    if (mergeIndex >= 0) {
+      const existing = state.items[mergeIndex] as Extract<MessageContent, { type: typeof kind }>;
       const text = sanitizeLodyInternalInstructions(mergeStreamChunk(existing.text, delta));
       if (text) {
-        state.items[state.items.length - 1] = {
-          ...existing,
-          text,
-        } as MessageContent;
+        state.items[mergeIndex] = mergeStreamedTextItem(existing, text, messageId);
       } else {
-        state.items.pop();
+        state.items.splice(mergeIndex, 1);
       }
     } else {
-      state.items.push({ type: kind, text: delta } as MessageContent);
+      state.items.push(createStreamedTextItem(kind, delta, messageId));
     }
     state.dirty = true;
   };
@@ -2036,14 +2123,14 @@ export const applyMessageContentsBatch = (
         const text = sanitizeLodyInternalInstructions(message.text);
         if (!text) break;
         const entryIndex = ensureActiveAssistantEntry();
-        appendOrMergeAdjacentText(entryIndex, 'text', text);
+        appendOrMergeStreamedText(entryIndex, 'text', text, message.messageId);
         break;
       }
       case 'thought': {
         const text = sanitizeLodyInternalInstructions(message.text);
         if (!text) break;
         const entryIndex = ensureActiveAssistantEntry();
-        appendOrMergeAdjacentText(entryIndex, 'thought', text);
+        appendOrMergeStreamedText(entryIndex, 'thought', text, message.messageId);
         break;
       }
       case 'plan': {
@@ -2103,7 +2190,7 @@ export const applyMessageContentsBatch = (
         newItems.push(item);
         continue;
       }
-      const parsed = parseAssistantTextTags(item.text, state.entry.id);
+      const parsed = parseAssistantTextTags(item.text, state.entry.id, item.messageId);
       if (
         parsed.length !== 1 ||
         parsed[0]?.type !== 'text' ||

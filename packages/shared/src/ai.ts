@@ -1423,6 +1423,14 @@ export type MessageContent =
       text: string;
       /** Mention regions of `text`. See `message-text-spans.ts`. */
       spans?: MessageTextSpan[];
+      /**
+       * ACP `messageId` of the agent message this block was streamed from, when the adapter
+       * published one. Every chunk of one message carries the same id, so a delta can find
+       * the block it continues even when a `tool_call` landed between two of them — see
+       * `findStreamedTextMergeIndex` in `acp/history-apply.ts`. Absent for blocks that were
+       * not streamed from an ACP chunk, and for a block that spans more than one message.
+       */
+      messageId?: string;
     }
   | ({
       type: 'image';
@@ -1432,6 +1440,8 @@ export type MessageContent =
   | {
       type: 'thought';
       text: string;
+      /** See `messageId` on the `text` variant. */
+      messageId?: string;
     }
   | {
       type: 'plan';
