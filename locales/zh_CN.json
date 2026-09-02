@@ -1411,6 +1411,7 @@
   "sessions.fileViewer.openFile": "打开文件",
   "sessions.fileViewer.path": "文件路径",
   "sessions.fileViewer.pathCopied": "文件路径已复制",
+  "sessions.fileViewer.pathCopyFailed": "复制文件路径失败",
   "sessions.fileViewer.preview.show": "预览",
   "sessions.fileViewer.preview.hide": "退出预览",
   "sessions.fileViewer.refresh": "刷新",

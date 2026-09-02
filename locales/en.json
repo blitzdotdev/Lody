@@ -1411,6 +1411,7 @@
   "sessions.fileViewer.openFile": "Open file",
   "sessions.fileViewer.path": "File path",
   "sessions.fileViewer.pathCopied": "File path copied",
+  "sessions.fileViewer.pathCopyFailed": "Failed to copy file path",
   "sessions.fileViewer.preview.show": "Preview",
   "sessions.fileViewer.preview.hide": "Hide preview",
   "sessions.fileViewer.refresh": "Refresh",
