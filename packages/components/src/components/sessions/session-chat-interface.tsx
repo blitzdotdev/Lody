@@ -1003,6 +1003,7 @@ export function SessionHeaderMenu({
   onRestore,
   onDelete,
   compact = false,
+  hideCloudMenuItems = false,
   t,
 }: {
   session: SessionMeta;
@@ -1030,6 +1031,18 @@ export function SessionHeaderMenu({
   onRestore?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   compact?: boolean;
+  /**
+   * Drop the three rows that only mean something inside a Lody CLOUD workspace:
+   * "Change owner", "Share with team" and "Copy URL".
+   *
+   * A host that mounts this menu against a single-member local workspace has no
+   * second member to hand a Session to, serves sharing from its own chrome, and
+   * has no cloud address for "Copy URL" to build — that last one copies a deep
+   * link from the daemon slug and toasts success either way, which is the worst
+   * of the three. Each row's existing gate (`owner`, `sharing`, `onCopyUrl`)
+   * answers a different question and none of them answers this one.
+   */
+  hideCloudMenuItems?: boolean;
   t: SessionSharingTranslator;
 }) {
   const isArchived = !!session.isArchived;
@@ -1340,7 +1353,7 @@ export function SessionHeaderMenu({
             </DropdownMenuItem>
           )}
 
-          {owner && !isArchived ? (
+          {owner && !isArchived && !hideCloudMenuItems ? (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <UserRoundCog className="h-3.5 w-3.5 shrink-0" />
@@ -1385,7 +1398,7 @@ export function SessionHeaderMenu({
           {/* Copy URL stays in the Copy submenu even for private sessions (the
               link still works for the owner); sharing is a separate action that
               only appears while the conversation isn't team-visible. */}
-          {sharing && sharing.visibility !== 'team' ? (
+          {sharing && sharing.visibility !== 'team' && !hideCloudMenuItems ? (
             <DropdownMenuItem
               disabled={shareActionDisabled}
               onClick={() => {
@@ -1470,14 +1483,16 @@ export function SessionHeaderMenu({
                 <Copy className="h-3.5 w-3.5 shrink-0" />
                 {t('sessions.copyAsMarkdown', 'Copy as Markdown')}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  void onCopyUrl();
-                }}
-              >
-                <Copy className="h-3.5 w-3.5 shrink-0" />
-                {t('sessions.copyUrl', 'Copy URL')}
-              </DropdownMenuItem>
+              {hideCloudMenuItems ? null : (
+                <DropdownMenuItem
+                  onClick={() => {
+                    void onCopyUrl();
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5 shrink-0" />
+                  {t('sessions.copyUrl', 'Copy URL')}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
 
@@ -1728,6 +1743,24 @@ interface SessionChatInterfaceProps {
   subHeader?: React.ReactNode;
   /** When true, hide the message area and input but keep the header and subHeader visible */
   hideMessageArea?: boolean;
+  /** Forwarded to `SessionHeaderMenu`; see the prop's doc comment there. */
+  hideCloudMenuItems?: boolean;
+  /**
+   * Drop the notification permission prompt.
+   *
+   * For a host that mounts no push provider. The prompt's Enable button asks the
+   * browser for a permission nothing then consumes, and its "Don't remind me"
+   * writes a preference for a prompt that should not have appeared.
+   */
+  hideNotificationPrompt?: boolean;
+  /**
+   * Drop the composer's Agent Role row.
+   *
+   * For a host whose workspace catalog carries no Roles and no way to write one:
+   * the row then renders its own empty state — a "New role" entry opening an
+   * editor whose save has nowhere to land — rather than disappearing.
+   */
+  hideAgentRoles?: boolean;
   /** When false, keep the local doc mounted without holding the remote room subscription. */
   syncEnabled?: boolean;
   /**
@@ -1897,6 +1930,9 @@ export const SessionChatInterface = memo(
       titleSyncing,
       subHeader,
       hideMessageArea = false,
+      hideCloudMenuItems = false,
+      hideNotificationPrompt = false,
+      hideAgentRoles = false,
       syncEnabled = !hideMessageArea,
       isVisible = true,
       isExternalHistoryRefreshing = false,
@@ -5568,6 +5604,7 @@ export const SessionChatInterface = memo(
               }
         }
         onOpenReviewSettings={() => openSettings('preferences')}
+        hideCloudMenuItems={hideCloudMenuItems}
         owner={ownerMenuState}
         openedByRelations={openedByRelations}
         onArchive={onArchiveSession}
@@ -5754,9 +5791,11 @@ export const SessionChatInterface = memo(
                       Visibility + enable/dismiss live inside NotificationPermissionPrompt (owned elsewhere)
                       and the actual grant/deny resolves on the settings page, so these must be emitted from
                       that component via onShown/onEnableClicked/onDismissed callbacks (see crossFileNeeds). */}
-                  <NotificationPermissionPrompt
-                    sessionCompleted={session.status?.type === 'idle' && !isSessionWorking}
-                  />
+                  {hideNotificationPrompt ? null : (
+                    <NotificationPermissionPrompt
+                      sessionCompleted={session.status?.type === 'idle' && !isSessionWorking}
+                    />
+                  )}
 
                   {/* An active auto-review run states itself here rather than
                       only in the "…" menu: the failure mode worth designing
@@ -5860,6 +5899,7 @@ export const SessionChatInterface = memo(
                     <SessionChatInputArea
                       ref={inputAreaRef}
                       session={session}
+                      hideAgentRoles={hideAgentRoles}
                       sessionLocalProjectRootPath={resolvedLocalProjectMeta?.rootPath ?? null}
                       isMachineRemoved={isMachineRemoved}
                       isAgentBusy={isAgentBusy}
