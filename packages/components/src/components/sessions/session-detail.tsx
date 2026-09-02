@@ -5758,6 +5758,10 @@ const SessionDetail = ({
           copies) so the `session.renameCurrent` / `session.archiveCurrent` keyboard
           shortcuts have a mounted target on desktop. They portal out, so tree position
           doesn't matter. */}
+      {/* Quick open file (Ctrl/Cmd+P) is one of them: without this mount the
+          desktop handler ran, preventDefault'd the chord, and had no dialog to
+          open. */}
+      {fileQuickOpenDialog}
       {archiveConfirmDialog}
       {dirtyForkDialog}
       {worktreeForkObservers}
