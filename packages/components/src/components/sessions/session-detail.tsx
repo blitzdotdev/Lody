@@ -664,12 +664,23 @@ const SessionDetail = ({
   urlPrNumber,
   urlBrowser,
   onMobileBack,
+  hideLanguageServiceActions = false,
 }: {
   sessionId: SessionId;
   urlTab?: string;
   urlPrNumber?: number;
   urlBrowser?: boolean;
   onMobileBack?: () => void;
+  /**
+   * Whether the host serves a language service at all.
+   *
+   * Go to Definition and Find References are Machine RPC round trips. A host
+   * whose machine answers "unsupported" for every file draws two editor
+   * entries whose only outcome is that message, so it can take them off the
+   * menu instead. Passed to every file viewer this page mounts; see
+   * `SessionFileContentViewProps.lspAvailable`.
+   */
+  hideLanguageServiceActions?: boolean;
 }) => {
   const { t } = useTranslation();
   const router = useRouter();
@@ -4522,6 +4533,7 @@ const SessionDetail = ({
         saveRequestSeq={viewerTabSaveStates[tab.id]?.saveRequestSeq ?? 0}
         copyMarkdownRequestSeq={viewerTabSaveStates[tab.id]?.copyMarkdownRequestSeq ?? 0}
         preferNativeMarkdownSelection={isMobile}
+        lspAvailable={!hideLanguageServiceActions}
         fileProvider={activeSessionFileProvider}
         fileProviderPending={activeSessionFileProviderPending}
         fileProviderMessage={activeSessionFileProviderMessage}
