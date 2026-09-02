@@ -4161,10 +4161,14 @@ function WorkspaceChatLanding({
     const repo = freshRepositories?.find((r) => r.fullName === selectedRepo);
     return repo ? !repo.private : undefined;
   }, [freshRepositories, selectedRepo]);
+  // The `@issue` and `@pr` mention categories key off this name and resolve
+  // against the GitHub App; without the capability there is no App to ask.
+  const githubIntegrationAvailable = useAppCapability('githubIntegration');
   const selectedLocalProjectGithubRepoFullName = useMemo(() => {
+    if (!githubIntegrationAvailable) return undefined;
     if (contextType !== 'local') return undefined;
     return resolveLocalProjectGithubRepoFullName(activeLocalGitState, repositories) ?? undefined;
-  }, [activeLocalGitState, contextType, repositories]);
+  }, [activeLocalGitState, contextType, githubIntegrationAvailable, repositories]);
 
   const preparationMachineId = useMemo(() => {
     if (!selectedAgent) return null;
@@ -4270,9 +4274,14 @@ function WorkspaceChatLanding({
         githubRepoFullName: selectedLocalProjectGithubRepoFullName,
       };
     }
-    return { kind: 'github' as const, repoFullName: selectedRepo, isPublic: isSelectedRepoPublic };
+    return {
+      kind: 'github' as const,
+      repoFullName: githubIntegrationAvailable ? selectedRepo : undefined,
+      isPublic: isSelectedRepoPublic,
+    };
   }, [
     contextType,
+    githubIntegrationAvailable,
     isSelectedRepoPublic,
     selectedLocalProject,
     selectedLocalProjectGithubRepoFullName,

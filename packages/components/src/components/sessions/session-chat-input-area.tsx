@@ -15,6 +15,7 @@ import { ArrowUp, Loader2 } from 'lucide-react';
 import { Button } from '@/ui/button';
 import type { AcpSessionSelectOption } from '@/components/shared/acp-session-select';
 import { useSessionAgentRole } from '@/hooks/use-session-agent-role';
+import { useAppCapability } from '@/lib/app-platform';
 import { buildAgentRoleFormValueFromRunConfig } from '@/lib/agent-role-form';
 import { doesAgentRolePinPermissionMode } from '@/lib/composer-agent-roles';
 import { resolvePermissionModeFace } from '@/lib/permission-mode-face';
@@ -1923,7 +1924,15 @@ export const SessionChatInputArea = memo(
         }),
       [effectiveWorkspaceId, localMachineId, session, sessionLocalProjectRootPath]
     );
-    const repoFullName = useMemo(() => resolveSessionRepoFullName(session), [session]);
+    // `@issue`, `@pr` and the `#123` hydrator all key off this name, and all
+    // three resolve against the GitHub App. A platform without the
+    // `githubIntegration` capability has no App, so a local clone's remote must
+    // not enable them.
+    const githubIntegrationAvailable = useAppCapability('githubIntegration');
+    const repoFullName = useMemo(
+      () => (githubIntegrationAvailable ? resolveSessionRepoFullName(session) : ''),
+      [githubIntegrationAvailable, session]
+    );
     const codeCollabRequestedRole = useCodeCollabRequestedRole();
     // Code Collab files live in the worktree owned by the top-level (parent)
     // session; child-session tabs share that same workspace. Look the space up

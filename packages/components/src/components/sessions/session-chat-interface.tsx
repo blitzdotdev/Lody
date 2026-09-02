@@ -150,6 +150,7 @@ import { MessageSendStatusContext } from '../ai-gui/message-send-status-context'
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Locale } from 'date-fns';
 import { enUS, zhCN } from 'date-fns/locale';
+import { useAppCapability } from '@/lib/app-platform';
 import { getAppShareUrl } from '@/lib/app-location';
 import { resolveSessionOpenInIdePathTarget } from '@/lib/session-open-in-ide-path';
 import {
@@ -2133,6 +2134,12 @@ export const SessionChatInterface = memo(
       return formatSessionDate(session.createdAt, localeObj) || session.id;
     }, [session, localeObj]);
 
+    // Every GitHub surface below — the info bar's six actions, the PR badge, the
+    // `@issue`/`@pr` mention categories, the `#123` hydrator — is reachable only
+    // through this state, and every one of them ends at the GitHub App. On a
+    // platform that declares no `githubIntegration` there is no App, so the
+    // repo identity a local clone happens to carry must not light them up.
+    const githubIntegrationAvailable = useAppCapability('githubIntegration');
     const {
       repoFullName,
       latestPr,
@@ -2142,8 +2149,8 @@ export const SessionChatInterface = memo(
       workspaceDirty,
       hasChanges,
     } = useMemo(
-      () => getSessionGitHubState(session, workspaceSession),
-      [session, workspaceSession]
+      () => getSessionGitHubState(session, workspaceSession, githubIntegrationAvailable),
+      [session, workspaceSession, githubIntegrationAvailable]
     );
     const latestPrNumber = getPullRequestNumber(latestPr);
     const latestPrRepoFullName = getPullRequestRepoFullName(latestPr) ?? repoFullName;

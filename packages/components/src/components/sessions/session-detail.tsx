@@ -203,6 +203,7 @@ import {
   getPullRequestRepoFullName,
   getSessionGitHubState,
 } from '@/lib/session-github-state';
+import { useAppCapability } from '@/lib/app-platform';
 import {
   resolveMachineDotlodyPath,
   resolveSessionWorkspacePath,
@@ -1560,9 +1561,11 @@ const SessionDetail = ({
     return 'idle';
   }, [activeSession, activeSessionLiveStatus]);
   useTabStatus(tabStatus);
+  const githubIntegrationAvailable = useAppCapability('githubIntegration');
   const { latestPr, repoFullName, canShowGitHubActions } = useMemo(
-    () => getSessionGitHubState(activeTabSession, workspaceOwnerSession),
-    [activeTabSession, workspaceOwnerSession]
+    () =>
+      getSessionGitHubState(activeTabSession, workspaceOwnerSession, githubIntegrationAvailable),
+    [activeTabSession, githubIntegrationAvailable, workspaceOwnerSession]
   );
   const latestPrNumber = getPullRequestNumber(latestPr);
   const latestPrRepoFullName = getPullRequestRepoFullName(latestPr) ?? repoFullName;
