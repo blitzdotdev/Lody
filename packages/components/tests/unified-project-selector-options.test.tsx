@@ -10,6 +10,7 @@ import {
   type UnifiedLocalProjectOption,
 } from '../src/components/chat/unified-project-selector';
 import { TooltipProvider } from '../src/ui/tooltip';
+import { TestCloudPlatformProvider } from './test-platform';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -65,16 +66,18 @@ describe('UnifiedProjectSelectorView options', () => {
   it('renders the 20 most recent projects and searches the complete list', async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <UnifiedProjectSelectorView
-            value={{ kind: 'none' }}
-            onChange={vi.fn()}
-            localProjects={localProjects}
-            onAddLocalProject={vi.fn()}
-            onConnectGitRepo={vi.fn()}
-            renderLimit={20}
-          />
-        </TooltipProvider>
+        <TestCloudPlatformProvider>
+          <TooltipProvider>
+            <UnifiedProjectSelectorView
+              value={{ kind: 'none' }}
+              onChange={vi.fn()}
+              localProjects={localProjects}
+              onAddLocalProject={vi.fn()}
+              onConnectGitRepo={vi.fn()}
+              renderLimit={20}
+            />
+          </TooltipProvider>
+        </TestCloudPlatformProvider>
       );
     });
 
@@ -119,16 +122,18 @@ describe('UnifiedProjectSelectorView options', () => {
   it('keeps every source visible when the caller has no shared recency ranking', async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <UnifiedProjectSelectorView
-            value={{ kind: 'none' }}
-            onChange={vi.fn()}
-            localProjects={localProjects}
-            repositories={[{ fullName: 'loro-dev/lody' }]}
-            onAddLocalProject={vi.fn()}
-            onConnectGitRepo={vi.fn()}
-          />
-        </TooltipProvider>
+        <TestCloudPlatformProvider>
+          <TooltipProvider>
+            <UnifiedProjectSelectorView
+              value={{ kind: 'none' }}
+              onChange={vi.fn()}
+              localProjects={localProjects}
+              repositories={[{ fullName: 'loro-dev/lody' }]}
+              onAddLocalProject={vi.fn()}
+              onConnectGitRepo={vi.fn()}
+            />
+          </TooltipProvider>
+        </TestCloudPlatformProvider>
       );
     });
 
@@ -149,18 +154,20 @@ describe('UnifiedProjectSelectorView options', () => {
   it('includes recently used GitHub repositories in the bounded mixed list', async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <UnifiedProjectSelectorView
-            value={{ kind: 'none' }}
-            onChange={vi.fn()}
-            localProjects={localProjects}
-            repositories={[{ fullName: 'loro-dev/lody' }]}
-            latestMessageAtByRepo={new Map([['loro-dev/lody', 100]])}
-            onAddLocalProject={vi.fn()}
-            onConnectGitRepo={vi.fn()}
-            renderLimit={20}
-          />
-        </TooltipProvider>
+        <TestCloudPlatformProvider>
+          <TooltipProvider>
+            <UnifiedProjectSelectorView
+              value={{ kind: 'none' }}
+              onChange={vi.fn()}
+              localProjects={localProjects}
+              repositories={[{ fullName: 'loro-dev/lody' }]}
+              latestMessageAtByRepo={new Map([['loro-dev/lody', 100]])}
+              onAddLocalProject={vi.fn()}
+              onConnectGitRepo={vi.fn()}
+              renderLimit={20}
+            />
+          </TooltipProvider>
+        </TestCloudPlatformProvider>
       );
     });
 
@@ -189,18 +196,20 @@ describe('UnifiedProjectSelectorView options', () => {
   it('reserves a source slot for a GitHub repository with no usage history', async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <UnifiedProjectSelectorView
-            value={{ kind: 'none' }}
-            onChange={vi.fn()}
-            localProjects={localProjects}
-            repositories={[{ fullName: 'loro-dev/new-repository' }]}
-            latestMessageAtByRepo={new Map()}
-            onAddLocalProject={vi.fn()}
-            onConnectGitRepo={vi.fn()}
-            renderLimit={20}
-          />
-        </TooltipProvider>
+        <TestCloudPlatformProvider>
+          <TooltipProvider>
+            <UnifiedProjectSelectorView
+              value={{ kind: 'none' }}
+              onChange={vi.fn()}
+              localProjects={localProjects}
+              repositories={[{ fullName: 'loro-dev/new-repository' }]}
+              latestMessageAtByRepo={new Map()}
+              onAddLocalProject={vi.fn()}
+              onConnectGitRepo={vi.fn()}
+              renderLimit={20}
+            />
+          </TooltipProvider>
+        </TestCloudPlatformProvider>
       );
     });
 

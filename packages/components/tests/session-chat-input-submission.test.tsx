@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, createElement } from 'react';
+import { act, createElement, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRole, AgentRoleId, SessionMeta } from '@lody/shared';
@@ -89,6 +89,13 @@ vi.mock('../src/hooks/use-code-collab-session-file-provider', () => ({
 }));
 
 import { SessionChatInputArea } from '../src/components/sessions/session-chat-input-area';
+import { TestCloudPlatformProvider } from './test-platform';
+
+// The composer now reads the `githubIntegration` platform capability, and
+// `PlatformContext` deliberately has no default — a missing provider is a
+// programming error rather than an implicit cloud fallback.
+const renderInputArea = (props: ComponentProps<typeof SessionChatInputArea>) =>
+  createElement(TestCloudPlatformProvider, null, createElement(SessionChatInputArea, props));
 import { initI18n } from '../src/i18n';
 
 (
@@ -159,7 +166,7 @@ describe('SessionChatInputArea submission feedback', () => {
 
     await act(async () => {
       root?.render(
-        createElement(SessionChatInputArea, {
+        renderInputArea({
           session: {
             id: 'session-role-permission',
             userId: 'user-1',
@@ -218,7 +225,7 @@ describe('SessionChatInputArea submission feedback', () => {
 
     await act(async () => {
       root?.render(
-        createElement(SessionChatInputArea, {
+        renderInputArea({
           session: {
             id: 'session-feedback',
             userId: 'user-1',
@@ -279,7 +286,7 @@ describe('SessionChatInputArea submission feedback', () => {
 
     await act(async () => {
       root?.render(
-        createElement(SessionChatInputArea, {
+        renderInputArea({
           session: {
             id: 'session-mobile-keyboard-send',
             userId: 'user-1',
@@ -367,7 +374,7 @@ describe('SessionChatInputArea submission feedback', () => {
 
     await act(async () => {
       root?.render(
-        createElement(SessionChatInputArea, {
+        renderInputArea({
           session: {
             id: 'session-limit',
             userId: 'user-1',

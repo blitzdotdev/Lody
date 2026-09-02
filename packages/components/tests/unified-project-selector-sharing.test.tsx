@@ -13,6 +13,7 @@ import {
 } from '@lody/shared';
 
 import { UnifiedProjectSelector } from '../src/components/chat/unified-project-selector';
+import { TestCloudPlatformProvider } from './test-platform';
 import type { LocalProjectVisibilityAccess } from '../src/lib/visible-local-project-index';
 import type { MachineVisibilityAccess } from '../src/lib/visible-machine-index';
 import { TooltipProvider } from '../src/ui/tooltip';
@@ -167,24 +168,26 @@ describe('UnifiedProjectSelector project sharing', () => {
   } = {}) {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <UnifiedProjectSelector
-            value={{ kind: 'local', machineId, localProjectId }}
-            onChange={vi.fn()}
-            selectedMachineId={machineId}
-            onAddLocalProject={vi.fn()}
-            onConnectGitRepo={vi.fn()}
-            projectSharing={
-              includeProjectSharing
-                ? {
-                    currentUserId,
-                    machineAccessByMachineId: new Map([[machineId, machineAccess]]),
-                    onShareWithTeam,
-                  }
-                : undefined
-            }
-          />
-        </TooltipProvider>
+        <TestCloudPlatformProvider>
+          <TooltipProvider>
+            <UnifiedProjectSelector
+              value={{ kind: 'local', machineId, localProjectId }}
+              onChange={vi.fn()}
+              selectedMachineId={machineId}
+              onAddLocalProject={vi.fn()}
+              onConnectGitRepo={vi.fn()}
+              projectSharing={
+                includeProjectSharing
+                  ? {
+                      currentUserId,
+                      machineAccessByMachineId: new Map([[machineId, machineAccess]]),
+                      onShareWithTeam,
+                    }
+                  : undefined
+              }
+            />
+          </TooltipProvider>
+        </TestCloudPlatformProvider>
       );
     });
     return onShareWithTeam;
