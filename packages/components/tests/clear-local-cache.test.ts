@@ -157,6 +157,37 @@ describe('maybeClearLodyCacheOnBoot', () => {
     expect(repoFilePathsDeletes).toHaveLength(1);
   });
 
+  it('deletes a caller-supplied database once per page load, not on every later call', async () => {
+    markCacheClearPending();
+    const workspaceDatabases = [
+      'lody-loro-repo-db-ws-current',
+      'lody-loro-stream-cursors-ws-current',
+    ];
+
+    // `AppInitializer` starts the boot clear; `RuntimeProvider` then contributes
+    // the current workspace's databases while building the runtime.
+    await maybeClearLodyCacheOnBoot();
+    await maybeClearLodyCacheOnBoot(workspaceDatabases);
+    // The runtime is rebuilt later in the same page load and passes the same
+    // names again. By then it has re-created and re-synced those databases, so a
+    // second delete destroys live data rather than stale cache.
+    await maybeClearLodyCacheOnBoot(workspaceDatabases);
+
+    for (const name of workspaceDatabases) {
+      expect(deletedDatabases.filter((deleted) => deleted === name)).toHaveLength(1);
+    }
+  });
+
+  it('still deletes a name first contributed after the boot clear already ran', async () => {
+    presentDatabases = [];
+    markCacheClearPending();
+
+    await maybeClearLodyCacheOnBoot();
+    await maybeClearLodyCacheOnBoot(['lody-loro-repo-db-ws-late']);
+
+    expect(deletedDatabases.filter((name) => name === 'lody-loro-repo-db-ws-late')).toHaveLength(1);
+  });
+
   it('still deletes a caller-supplied database name that enumeration missed', async () => {
     presentDatabases = [];
     markCacheClearPending();
