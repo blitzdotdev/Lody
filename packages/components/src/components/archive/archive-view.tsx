@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppCapability } from '@/lib/app-platform';
 import { Button } from '@/ui/button';
 import { Checkbox } from '@/ui/checkbox';
 import {
@@ -315,9 +316,16 @@ type ArchivedSessionItemViewModel = {
   prTooltipLabel: string;
 };
 
+/**
+ * @param gitHubIntegrationAvailable - The `githubIntegration` platform
+ * capability. With it off there is no GitHub App behind the row's PR badge, so
+ * the pull request is dropped here rather than at each of the four values it
+ * feeds — the same shape `getSessionGitHubState` uses.
+ */
 function getArchivedSessionItemViewModel(
   session: SessionMeta,
-  now: Date
+  now: Date,
+  gitHubIntegrationAvailable = true
 ): ArchivedSessionItemViewModel {
   const title = session.title?.trim() || 'Untitled session';
   const relativeTime = formatRelativeTime(session.lastMessageAt, now);
@@ -325,7 +333,7 @@ function getArchivedSessionItemViewModel(
   const diffStats = session.diffStats ?? { allChange: { add: 0, del: 0 } };
   const hasChanges = diffStats.allChange.add !== 0 || diffStats.allChange.del !== 0;
 
-  const pullRequests = session.pullRequests ?? [];
+  const pullRequests = gitHubIntegrationAvailable ? session.pullRequests ?? [] : [];
   const latestPr =
     pullRequests.length > 0
       ? pullRequests.some((pr) => getSessionPullRequestLegacyFields(pr).reportedAt)
@@ -402,6 +410,7 @@ function DesktopArchivedSessionItem({
   onEnterMultiSelect,
   owner,
 }: ArchivedSessionItemBaseProps) {
+  const gitHubIntegrationAvailable = useAppCapability('githubIntegration');
   const {
     title,
     relativeTime,
@@ -412,7 +421,7 @@ function DesktopArchivedSessionItem({
     prStatusMeta,
     PrIcon,
     prTooltipLabel,
-  } = getArchivedSessionItemViewModel(session, now);
+  } = getArchivedSessionItemViewModel(session, now, gitHubIntegrationAvailable);
 
   const handleRowClick = useCallback(() => {
     if (isMultiSelectMode) {
@@ -632,6 +641,7 @@ function MobileArchivedSessionItem({
   onEnterMultiSelect,
   owner,
 }: MobileArchivedSessionItemProps) {
+  const gitHubIntegrationAvailable = useAppCapability('githubIntegration');
   const {
     title,
     relativeTime,
@@ -642,7 +652,7 @@ function MobileArchivedSessionItem({
     prStatusMeta,
     PrIcon,
     prTooltipLabel,
-  } = getArchivedSessionItemViewModel(session, now);
+  } = getArchivedSessionItemViewModel(session, now, gitHubIntegrationAvailable);
 
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
