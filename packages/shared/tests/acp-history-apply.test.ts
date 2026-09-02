@@ -245,6 +245,278 @@ describe('acp history apply', () => {
     expect(history).toEqual([]);
   });
 
+  it('merges deltas of one message that a tool call interleaved into a single text block', () => {
+    // Tool calls are reported asynchronously, so a parallel/background tool can report itself
+    // between two deltas of the same assistant message. Both deltas carry the same ACP
+    // `messageId`, which is what says they are one message and not two.
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_01Three',
+        content: { type: 'text', text: 'Three' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_0166kpDv',
+        title: 'grep',
+        kind: 'search',
+        status: 'in_progress',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_01Three',
+        content: {
+          type: 'text',
+          text: ' characterization agents are running in parallel, plus the full suite on step 1.',
+        },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['text', 'tool_call']);
+    expect(items[0]).toEqual({
+      type: 'text',
+      messageId: 'msg_01Three',
+      text: 'Three characterization agents are running in parallel, plus the full suite on step 1.',
+    });
+  });
+
+  it('merges deltas of one message across a tool call applied in a later batch', () => {
+    // The live path applies notifications in flushes, so the reordered delta usually arrives
+    // in a separate call: the grouping has to survive in stored history, not in applier state.
+    const first = applyNotificationOnHistory(
+      [],
+      [
+        makeNotification({
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'msg_split',
+          content: { type: 'text', text: 'Reading the' },
+        }),
+      ]
+    );
+    const second = applyNotificationOnHistory(first, [
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_read',
+        title: 'read',
+        kind: 'read',
+        status: 'in_progress',
+      }),
+    ]);
+    const third = applyNotificationOnHistory(second, [
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_split',
+        content: { type: 'text', text: ' applier now.' },
+      }),
+    ]);
+
+    const items = (third[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['text', 'tool_call']);
+    expect((items[0] as { text?: string }).text).toBe('Reading the applier now.');
+  });
+
+  it('keeps text from two different messages in separate blocks across a tool call', () => {
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_first',
+        content: { type: 'text', text: 'Let me check the parser.' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_read',
+        title: 'read',
+        kind: 'read',
+        status: 'completed',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_second',
+        content: { type: 'text', text: 'The parser drops the id.' },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['text', 'tool_call', 'text']);
+    expect((items[0] as { text?: string }).text).toBe('Let me check the parser.');
+    expect((items[2] as { text?: string }).text).toBe('The parser drops the id.');
+  });
+
+  it('merges thought deltas of one message across an interleaved tool call', () => {
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'msg_thinking',
+        content: { type: 'text', text: 'I should' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_bash',
+        title: 'bash',
+        kind: 'execute',
+        status: 'in_progress',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'msg_thinking',
+        content: { type: 'text', text: ' check the tests first.' },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['thought', 'tool_call']);
+    expect((items[0] as { text?: string }).text).toBe('I should check the tests first.');
+  });
+
+  it('does not merge a text delta into the thought block of the same message', () => {
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'msg_mixed',
+        content: { type: 'text', text: 'Thinking about it.' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_grep',
+        title: 'grep',
+        kind: 'search',
+        status: 'in_progress',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_mixed',
+        content: { type: 'text', text: 'Here is the answer.' },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['thought', 'tool_call', 'text']);
+  });
+
+  it('keeps adjacent-only merging for chunks that publish no messageId', () => {
+    // Regression guard for adapters that do not publish `messageId`: a tool call still ends
+    // the text block, exactly as before, because nothing says the deltas share a message.
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Three' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_0166kpDv',
+        title: 'grep',
+        kind: 'search',
+        status: 'in_progress',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' characterization agents are running in parallel.' },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items).toEqual([
+      { type: 'text', text: 'Three' },
+      expect.objectContaining({ type: 'tool_call', toolCallId: 'toolu_0166kpDv' }),
+      { type: 'text', text: ' characterization agents are running in parallel.' },
+    ]);
+  });
+
+  it('keeps the message id on a text block split by <thinking> tags', () => {
+    const notifications = [
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_thinking_tags',
+        content: { type: 'text', text: '<thinking>\nWeigh it.\n</thinking>\nDone' },
+      }),
+      makeNotification({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_edit',
+        title: 'edit',
+        kind: 'edit',
+        status: 'in_progress',
+      }),
+      makeNotification({
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'msg_thinking_tags',
+        content: { type: 'text', text: ' weighing.' },
+      }),
+    ];
+
+    const history = applyNotificationOnHistory([], notifications);
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['thought', 'text', 'tool_call']);
+    expect((items[1] as { text?: string }).text).toBe('\nDone weighing.');
+  });
+
+  it('drops the message id from a block that ends up spanning two messages', () => {
+    // Two messages whose deltas arrive back to back still compact into one block (unchanged
+    // behavior), but the block then belongs to neither message, so it claims neither id.
+    const history = applyNotificationOnHistory(
+      [],
+      [
+        makeNotification({
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'msg_first',
+          content: { type: 'text', text: 'Hello' },
+        }),
+        makeNotification({
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'msg_second',
+          content: { type: 'text', text: ' world' },
+        }),
+      ]
+    );
+
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items).toEqual([{ type: 'text', text: 'Hello world' }]);
+  });
+
+  it('merges message-content batches by messageId across an interleaved tool call', () => {
+    const history = applyMessageContentsBatch(
+      [],
+      [
+        { type: 'text', text: 'Three', messageId: 'msg_01Three' },
+        { type: 'tool_call', toolCallId: 'toolu_0166kpDv', title: 'grep', status: 'in_progress' },
+        {
+          type: 'text',
+          text: ' characterization agents are running in parallel, plus the full suite on step 1.',
+          messageId: 'msg_01Three',
+        },
+      ],
+      { createId: () => 'turn-1' }
+    );
+
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['text', 'tool_call']);
+    expect(items[0]).toEqual({
+      type: 'text',
+      messageId: 'msg_01Three',
+      text: 'Three characterization agents are running in parallel, plus the full suite on step 1.',
+    });
+  });
+
+  it('keeps message-content batches from two messages in separate blocks', () => {
+    const history = applyMessageContentsBatch(
+      [],
+      [
+        { type: 'text', text: 'Let me check the parser.', messageId: 'msg_first' },
+        { type: 'tool_call', toolCallId: 'toolu_read', title: 'read', status: 'completed' },
+        { type: 'text', text: 'The parser drops the id.', messageId: 'msg_second' },
+      ],
+      { createId: () => 'turn-1' }
+    );
+
+    const items = (history[0]?.items ?? []) as unknown as MessageContent[];
+    expect(items.map((item) => item.type)).toEqual(['text', 'tool_call', 'text']);
+  });
+
   it('parses Claude Code <thinking> tags into thought + text', () => {
     const notifications = [
       makeNotification({
