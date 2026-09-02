@@ -1,6 +1,6 @@
 import { atom } from 'jotai';
 import type { PersistedMentionRange } from '@/components/mentions/mention-persistence';
-import { atomFamily, atomWithStorage } from 'jotai/utils';
+import { atomFamily, atomWithDefault, atomWithStorage } from 'jotai/utils';
 import type { PastedTextDraft } from '@/lib/pasted-text-draft';
 import {
   type CachedGitHubRepo,
@@ -10,7 +10,13 @@ import {
 
 // ============ GitHub Repos Cache ============
 
-export const allGitHubReposCacheAtom = atom<Record<string, WorkspaceReposCache>>(
+// `atomWithDefault`, not `atom(githubReposCache.readAll())`: a primitive atom's
+// `init` is evaluated once, when this module is imported, and is then shared by
+// every store. Any store created after import would start from that import-time
+// snapshot and silently miss repo lists cached since. Reading lazily gives each
+// store the localStorage contents at its own first read, and keeps the read out
+// of module scope.
+export const allGitHubReposCacheAtom = atomWithDefault<Record<string, WorkspaceReposCache>>(() =>
   githubReposCache.readAll()
 );
 
