@@ -674,12 +674,35 @@ const SessionDetail = ({
   urlPrNumber,
   urlBrowser,
   onMobileBack,
+  hideCloudMenuItems = false,
+  hideNotificationPrompt = false,
+  hideAgentRoles = false,
+  keyboardShortcutsAvailable = true,
 }: {
   sessionId: SessionId;
   urlTab?: string;
   urlPrNumber?: number;
   urlBrowser?: boolean;
   onMobileBack?: () => void;
+  /** Passed to every chat surface this page mounts; see
+   * `SessionChatInterfaceProps.hideCloudMenuItems`. */
+  hideCloudMenuItems?: boolean;
+  /** Passed to every chat surface this page mounts; see
+   * `SessionChatInterfaceProps.hideNotificationPrompt`. */
+  hideNotificationPrompt?: boolean;
+  /** Passed to every chat surface this page mounts; see
+   * `SessionChatInterfaceProps.hideAgentRoles`. */
+  hideAgentRoles?: boolean;
+  /**
+   * Whether the host answers keyboard commands at all.
+   *
+   * This page registers `session.focusInput`, and the composer reads that
+   * registration to draw a ⌘L discovery chip. A host that never calls
+   * `commands.attach(window)` has no dispatcher, so the chip advertises a chord
+   * that does nothing. On by default, so every existing call site keeps the
+   * registration and the chip.
+   */
+  keyboardShortcutsAvailable?: boolean;
 }) => {
   const { t } = useTranslation();
   const router = useRouter();
@@ -3798,6 +3821,11 @@ const SessionDetail = ({
     run: handleOpenSearch,
   });
 
+  // The composer draws its ⌘L discovery chip from this registration
+  // (`chat-composer.tsx` reads `commands.getKeybindingsFor('session.focusInput')`),
+  // so a host with no keyboard dispatcher must not make it. Passing the flag as
+  // `useCommand`'s second argument keeps this to one changed line in a file the
+  // seam pin reads line by line.
   useCommand({
     id: 'session.focusInput',
     title: t('commands.session.focusInput', 'Focus Current Input'),
@@ -3805,7 +3833,7 @@ const SessionDetail = ({
     keybindings: getCommandKeybindings('session.focusInput'),
     when: () => Boolean(chatRefsMap.current.get(activeTabSessionId)),
     run: handleFocusActiveInput,
-  });
+  }, keyboardShortcutsAvailable);
 
   useCommand({
     id: 'session.saveCurrentFile',
@@ -5660,6 +5688,9 @@ const SessionDetail = ({
       workspaceSession: activeSession,
       className: 'h-full',
       hideHeader: true,
+      hideCloudMenuItems,
+      hideNotificationPrompt,
+      hideAgentRoles,
       syncEnabled: isActive || pendingForkSourceId !== undefined,
       isVisible,
       onFileDiffClick: handleOpenFileDiffForChat,

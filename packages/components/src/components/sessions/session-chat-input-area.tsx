@@ -378,6 +378,14 @@ export function getSessionChatInputAreaShellClassName({
 
 export interface SessionChatInputAreaProps {
   session: SessionMeta;
+  /**
+   * Drop the run-config menu's Agent Role row.
+   *
+   * For a host whose workspace catalog carries no Roles and no writer for one:
+   * with an empty list the row does not disappear, it renders a "New role"
+   * entry that opens an editor whose save has nowhere to land.
+   */
+  hideAgentRoles?: boolean;
   sessionLocalProjectRootPath: string | null;
   isMachineRemoved: boolean;
   isAgentBusy: boolean;
@@ -491,6 +499,7 @@ export const SessionChatInputArea = memo(
   forwardRef<SessionChatInputAreaHandle, SessionChatInputAreaProps>(function SessionChatInputArea(
     {
       session,
+      hideAgentRoles = false,
       sessionLocalProjectRootPath,
       isMachineRemoved,
       canStopAgent = false,
@@ -2329,7 +2338,7 @@ export const SessionChatInputArea = memo(
         configOptionValues={configOptionValues}
         onConfigOptionChange={onConfigOptionChange}
         fallbackAgent={{ cliType: session.cliType, agentType: session.agentType }}
-        agentRoles={agentRolesProp}
+        agentRoles={hideAgentRoles ? undefined : agentRolesProp}
       />
     ) : null;
     const desktopAgentMachineIds = useMemo(
@@ -2362,7 +2371,7 @@ export const SessionChatInputArea = memo(
           onConfigOptionChange={onConfigOptionChange}
           modeOptions={modeOptions}
           selectedModeId={selectedModeId}
-          agentRoles={agentRolesProp}
+          agentRoles={hideAgentRoles ? undefined : agentRolesProp}
         />
         {selectedAgentRolePinsPermissionMode ? null : (
           <DesktopPermissionModeButton
