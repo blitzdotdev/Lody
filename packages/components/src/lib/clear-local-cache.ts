@@ -386,6 +386,8 @@ export function readPendingLocalClearMode(): PendingLocalClearMode | null {
 // gets the wipe, while `RuntimeProvider` awaits the same promise so the repo DB
 // is never reopened mid-delete.
 let bootClearPromise: Promise<PendingLocalClearMode | null> | null = null;
+// Caller-supplied database names already deleted during this page load.
+const bootClearedDatabaseNames = new Set<string>();
 
 async function runPendingClearOnBoot(): Promise<PendingLocalClearMode | null> {
   const mode = readPendingLocalClearMode();
@@ -422,12 +424,25 @@ export async function maybeClearLodyCacheOnBoot(extraNames: string[] = []): Prom
   const mode = await bootClearPromise;
   // Nothing was pending, or this caller has no extra databases to contribute.
   if (!mode || extraNames.length === 0) return;
-  await Promise.all(extraNames.map(deleteDatabaseBestEffort));
+  // The memo above resolves to the MODE, not to "already ran", because a caller
+  // that arrives later in the same boot still has to contribute its databases.
+  // But the clear is a one-shot: by the second time `RuntimeProvider` builds a
+  // runtime, the databases it names have been re-created and re-synced, so
+  // deleting them again destroys live data instead of stale cache. Claim the
+  // names synchronously, before the first await, so concurrent callers cannot
+  // both claim one.
+  const unclaimed = extraNames.filter((name) => !bootClearedDatabaseNames.has(name));
+  for (const name of unclaimed) {
+    bootClearedDatabaseNames.add(name);
+  }
+  if (unclaimed.length === 0) return;
+  await Promise.all(unclaimed.map(deleteDatabaseBestEffort));
 }
 
 /** Test-only: forget the per-page-load memo so each case starts clean. */
 export function resetBootClearMemoForTests(): void {
   bootClearPromise = null;
+  bootClearedDatabaseNames.clear();
 }
 
 /**
