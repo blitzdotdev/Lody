@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { LODY_PRESENCE_HEARTBEAT_MS, type MachineId, type WorkspaceId } from '@lody/shared';
 import { authTokenAtom, runtimeAtom } from '@/atoms/runtime';
@@ -25,6 +25,7 @@ import { API_BASE_URL } from '@/lib';
 import { getCachedWorkspaceId } from '@/lib/local-storage-cache';
 import { usePostHog } from '@posthog/react';
 import { createWorkspaceRuntime } from './create-workspace-runtime';
+import { computeLocalReconnectDelayMs } from './local-reconnect-loop';
 import { resolveCloudPlatformRuntimePolicy } from './cloud-platform-runtime-policy';
 import type { EagerSyncSurface } from './background-sync-coordinator';
 import { resolveEffectiveWorkspaceId } from './resolve-effective-workspace-id';
@@ -190,6 +191,14 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   // Initialize runtime when we have a workspaceId (either from cache or server).
   // - If cached id exists for this slug: initialize immediately (offline-first)
   // - Otherwise: wait for server to respond with workspaceId
+  // A FAILED BOOT LEAVES NOTHING THAT CAN CHANGE, so nothing re-runs the effect
+  // below. `bootGeneration` is the one input that can: the catch schedules a
+  // bump, and the effect re-enters with the same inputs it had. The attempt
+  // count lives in a ref so clearing it on success does NOT re-run the effect
+  // and rebuild a runtime that just came up.
+  const [bootGeneration, setBootGeneration] = useState(0);
+  const failedBootAttemptsRef = useRef(0);
+
   useEffect(() => {
     if (!workspaceSlug) {
       console.info('RuntimeProvider: clear runtime due to missing workspaceSlug');
@@ -226,6 +235,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     }
 
     let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let workspaceRuntime: Awaited<ReturnType<typeof createWorkspaceRuntime>> | null = null;
     // Logging-only workspace id resolution inputs intentionally stay out of
     // this effect's dependency list. A cached id can create the runtime before
@@ -308,6 +318,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           }
           return;
         }
+        failedBootAttemptsRef.current = 0;
         setRuntime(workspaceRuntime);
         // Local runtime (IndexedDB-backed Loro repo) is ready — unblock UI
         // rendering immediately. WebSocket sync state is tracked separately
@@ -332,6 +343,17 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         setRuntime(null);
         setControlConnectionState('error');
         setRuntimeInitializing(false);
+        // Try again, rather than leaving the workspace unusable until the user
+        // reloads the page. Backoff is the same curve the local reconnect loop
+        // uses, so a machine that is slow to come up is waited out at the same
+        // cost the rest of the provider already pays for one that is slow to
+        // reconnect.
+        const attempt = failedBootAttemptsRef.current;
+        failedBootAttemptsRef.current = attempt + 1;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          setBootGeneration((generation) => generation + 1);
+        }, computeLocalReconnectDelayMs(attempt));
       }
     })();
 
@@ -340,6 +362,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         workspaceSlug,
       });
       disposed = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
       setRuntime(null);
       setControlConnectionState('idle');
       // Reset to true for next initialization cycle
@@ -366,6 +389,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     workspaceSlug,
     effectiveWorkspaceId,
     localAgentRuntimeReady,
+    bootGeneration,
   ]);
 
   useEffect(() => {
